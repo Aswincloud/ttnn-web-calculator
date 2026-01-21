@@ -698,9 +698,13 @@ def submit_bug_report():
                 'error': 'Bug report feature is not configured. RESEND_API_KEY environment variable not set.'
             })
         
-        data = request.json
-        report_data = data.get('report_data', {})
+        data = request.get_json(silent=True) or {}
+        report_data = data.get('report_data', {}) or {}
         user_description = data.get('description', 'No description provided')
+
+        # Ensure result is never None - default to empty dict if None
+        if report_data.get('result') is None:
+            report_data['result'] = {}
         
         # Get git commit info
         try:
@@ -772,11 +776,11 @@ def submit_bug_report():
             
             <div class="section">
                 <h3>📊 Result Data</h3>
-                {f"<p><span class='label'>Success:</span> {report_data.get('result', {}).get('success', 'N/A')}</p>" if report_data.get('result') else '<p>No result captured</p>'}
-                {f"<p><span class='label'>TTNN Value:</span> {report_data.get('result', {}).get('value', 'N/A')}</p>" if report_data.get('result', {}).get('success') else ''}
-                {f"<p><span class='label'>PyTorch Value:</span> {report_data.get('result', {}).get('torch_value', 'N/A')}</p>" if report_data.get('result', {}).get('success') else ''}
-                {f"<p><span class='label'>Shape:</span> {report_data.get('result', {}).get('shape', 'N/A')}</p>" if report_data.get('result', {}).get('success') else ''}
-                {f"<p><span class='label'>Error:</span> <code>{report_data.get('result', {}).get('error', 'N/A')}</code></p>" if report_data.get('result', {}).get('error') else ''}
+                {f"<p><span class='label'>Success:</span> {report_data.get('result', {}).get('success', 'N/A')}</p>" if report_data.get('result') and isinstance(report_data.get('result'), dict) else '<p>No result captured</p>'}
+                {f"<p><span class='label'>TTNN Value:</span> {report_data.get('result', {}).get('value', 'N/A')}</p>" if report_data.get('result', {}).get('success') and isinstance(report_data.get('result'), dict) else ''}
+                {f"<p><span class='label'>PyTorch Value:</span> {report_data.get('result', {}).get('torch_value', 'N/A')}</p>" if report_data.get('result', {}).get('success') and isinstance(report_data.get('result'), dict) else ''}
+                {f"<p><span class='label'>Shape:</span> {report_data.get('result', {}).get('shape', 'N/A')}</p>" if report_data.get('result', {}).get('success') and isinstance(report_data.get('result'), dict) else ''}
+                {f"<p><span class='label'>Error:</span> <code>{report_data.get('result', {}).get('error', 'N/A')}</code></p>" if report_data.get('result', {}).get('error') and isinstance(report_data.get('result'), dict) else ''}
             </div>
             
             <div class="section">
@@ -808,16 +812,31 @@ def submit_bug_report():
         params = {
             "from": f"TTNN Bug Report <{CONTACT_EMAIL}>",
             "to": [BUG_REPORT_EMAIL],
-            "subject": f"🐛 Bug Report: {report_data.get('operation', 'Unknown Operation')}",
+            "subject": f"🐛 Bug Report: {report_data.get('operation', 'Unknown Operation') if isinstance(report_data, dict) else 'Unknown Operation'}",
             "html": email_html
         }
         
         email_result = resend.Emails.send(params)
+
+        if email_result is None:
+            raise RuntimeError("Resend returned None")
+        
+        # Handle different SDK return types
+        email_id = "unknown"
+        
+        if isinstance(email_result, dict):
+            email_id = email_result.get("id", "unknown")
+        elif hasattr(email_result, "id"):
+            email_id = email_result.id
+        elif isinstance(email_result, (list, tuple)) and len(email_result) > 0:
+            data = email_result[0]
+            if isinstance(data, dict):
+                email_id = data.get("id", "unknown")
         
         return jsonify({
             'success': True,
             'message': 'Bug report submitted successfully! We will review it shortly.',
-            'email_id': email_result.get('id', 'unknown')
+            'email_id': email_id
         })
         
     except Exception as e:
