@@ -9,7 +9,7 @@ A modern web application for testing and visualizing ttnn operations in real-tim
 - 📊 **Data Type Support**: bfloat16, float32, int32, uint32, and more
 - 📈 **Result Visualization**: View shape, dtype, and output values
 - 🎨 **Modern UI**: Beautiful, responsive interface with real-time feedback
-- 🔐 **Secure Access**: Password-protected with SHA-256 hashing
+- 🔐 **Secure Access**: Password-protected with a configured Werkzeug password hash
 - ⚡ **Optional Parameters**: Support for 8 operations with configurable parameters
 - 🔄 **PyTorch Comparison**: Real-time comparison with PyTorch results
 - 🌐 **Cloudflare Ready**: Works seamlessly with Cloudflare Tunnel
@@ -37,12 +37,12 @@ pip install Flask==3.0.0
 
 The application is password-protected for secure access:
 
-**Password**: `mcw.pass`
-
-- Uses SHA-256 password hashing
+- Set `PASSWORD_HASH` to a hash generated with Werkzeug before starting the app:
+  `python -c "from werkzeug.security import generate_password_hash; print(generate_password_hash(input('Password: ')))"`
+- Uses a salted password hashing scheme
 - Session-based authentication
 - All routes protected (including API endpoints)
-- Password is NOT stored in plain text
+- Passwords and password hashes are not stored in the repository
 
 See [SECURITY.md](SECURITY.md) for detailed security information.
 
