@@ -4,11 +4,12 @@ A Flask-based web interface for testing ttnn operations
 """
 
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for
+from werkzeug.security import check_password_hash
+from html import escape
 import ttnn
 import torch
 import traceback
 import json
-import hashlib
 import secrets
 import os
 import threading
@@ -30,9 +31,8 @@ app.secret_key = os.environ.get('FLASK_SECRET_KEY', secrets.token_hex(32))
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(minutes=30)
 app.config['SESSION_REFRESH_EACH_REQUEST'] = True
 
-# Securely hash the password (SHA256)
-# The actual password is not stored anywhere in the code
-PASSWORD_HASH = "fb4d52ec15fde028f3574bfb1a313020e1d5127851353194e84978f788ada6b3"
+# Store a Werkzeug-generated password hash in the environment, never in source.
+PASSWORD_HASH = os.environ.get('PASSWORD_HASH')
 
 # Resend API configuration
 RESEND_API_KEY = os.environ.get('RESEND_API_KEY', '')
@@ -54,7 +54,10 @@ device_queue_stats = {
 
 def check_password(password):
     """Check if provided password matches the hash"""
-    return hashlib.sha256(password.encode()).hexdigest() == PASSWORD_HASH
+    try:
+        return bool(password and PASSWORD_HASH and check_password_hash(PASSWORD_HASH, password))
+    except (ValueError, TypeError):
+        return False
 
 def is_locked_out(ip_address):
     """Check if an IP address is currently locked out"""
@@ -731,6 +734,34 @@ def submit_bug_report():
         queue_stats = get_queue_stats()
         
         # Build email content
+        def escape_html(value):
+            return escape(str(value))
+
+        safe_result = report_data.get('result', {})
+        safe_result = safe_result if isinstance(safe_result, dict) else {}
+        safe_inputs = report_data.get('inputs', [])
+        safe_inputs = safe_inputs if isinstance(safe_inputs, list) else []
+        safe_operation = escape_html(report_data.get('operation', 'N/A'))
+        safe_user_description = escape_html(user_description)
+        safe_input_details = ''.join(
+            f'''
+                <div class="input-item">
+                    <p><span class="label">Input {i + 1}:</span></p>
+                    <p>Type: {escape_html(inp.get('type', 'N/A'))}</p>
+                    <p>Value: {escape_html(inp.get('value', 'N/A'))}</p>
+                    <p>Dtype: {escape_html(inp.get('dtype', 'N/A'))}</p>
+                    {f"<p>Shape: {escape_html(inp.get('shape', 'N/A'))}</p>" if inp.get('type') == 'tensor' else ''}
+                </div>
+            '''
+            for i, inp in enumerate(safe_inputs)
+            if isinstance(inp, dict)
+        )
+        safe_optional_param = escape_html(report_data.get('optional_param', 'N/A'))
+        safe_optional_param_2 = escape_html(report_data.get('optional_param_2', 'N/A'))
+        safe_git_info = {key: escape_html(value) for key, value in git_info.items()}
+        safe_user_agent = escape_html(request.headers.get('User-Agent', 'Unknown'))
+        safe_remote_addr = escape_html(request.remote_addr or 'Unknown')
+
         email_html = f"""
         <html>
         <head>
@@ -751,44 +782,36 @@ def submit_bug_report():
             
             <div class="section">
                 <h3>📝 User Description</h3>
-                <p>{user_description}</p>
+                <p>{safe_user_description}</p>
             </div>
             
             <div class="section">
                 <h3>⚙️ Operation Details</h3>
-                <p><span class="label">Operation:</span> {report_data.get('operation', 'N/A')}</p>
-                <p><span class="label">Number of Inputs:</span> {len(report_data.get('inputs', []))}</p>
+                <p><span class="label">Operation:</span> {safe_operation}</p>
+                <p><span class="label">Number of Inputs:</span> {len(safe_inputs)}</p>
                 
                 <h4>Inputs:</h4>
-                {''.join([f'''
-                <div class="input-item">
-                    <p><span class="label">Input {i+1}:</span></p>
-                    <p>Type: {inp.get('type', 'N/A')}</p>
-                    <p>Value: {inp.get('value', 'N/A')}</p>
-                    <p>Dtype: {inp.get('dtype', 'N/A')}</p>
-                    {f"<p>Shape: {inp.get('shape', 'N/A')}</p>" if inp.get('type') == 'tensor' else ''}
-                </div>
-                ''' for i, inp in enumerate(report_data.get('inputs', []))])}
+                {safe_input_details}
                 
-                {f"<p><span class='label'>Optional Param:</span> {report_data.get('optional_param', 'N/A')}</p>" if report_data.get('optional_param') else ''}
-                {f"<p><span class='label'>Optional Param 2:</span> {report_data.get('optional_param_2', 'N/A')}</p>" if report_data.get('optional_param_2') else ''}
+                {f"<p><span class='label'>Optional Param:</span> {safe_optional_param}</p>" if report_data.get('optional_param') else ''}
+                {f"<p><span class='label'>Optional Param 2:</span> {safe_optional_param_2}</p>" if report_data.get('optional_param_2') else ''}
             </div>
             
             <div class="section">
                 <h3>📊 Result Data</h3>
-                {f"<p><span class='label'>Success:</span> {report_data.get('result', {}).get('success', 'N/A')}</p>" if report_data.get('result') and isinstance(report_data.get('result'), dict) else '<p>No result captured</p>'}
-                {f"<p><span class='label'>TTNN Value:</span> {report_data.get('result', {}).get('value', 'N/A')}</p>" if report_data.get('result', {}).get('success') and isinstance(report_data.get('result'), dict) else ''}
-                {f"<p><span class='label'>PyTorch Value:</span> {report_data.get('result', {}).get('torch_value', 'N/A')}</p>" if report_data.get('result', {}).get('success') and isinstance(report_data.get('result'), dict) else ''}
-                {f"<p><span class='label'>Shape:</span> {report_data.get('result', {}).get('shape', 'N/A')}</p>" if report_data.get('result', {}).get('success') and isinstance(report_data.get('result'), dict) else ''}
-                {f"<p><span class='label'>Error:</span> <code>{report_data.get('result', {}).get('error', 'N/A')}</code></p>" if report_data.get('result', {}).get('error') and isinstance(report_data.get('result'), dict) else ''}
+                {f"<p><span class='label'>Success:</span> {escape_html(safe_result.get('success', 'N/A'))}</p>" if safe_result else '<p>No result captured</p>'}
+                {f"<p><span class='label'>TTNN Value:</span> {escape_html(safe_result.get('value', 'N/A'))}</p>" if safe_result.get('success') else ''}
+                {f"<p><span class='label'>PyTorch Value:</span> {escape_html(safe_result.get('torch_value', 'N/A'))}</p>" if safe_result.get('success') else ''}
+                {f"<p><span class='label'>Shape:</span> {escape_html(safe_result.get('shape', 'N/A'))}</p>" if safe_result.get('success') else ''}
+                {f"<p><span class='label'>Error:</span> <code>{escape_html(safe_result.get('error', 'N/A'))}</code></p>" if safe_result.get('error') else ''}
             </div>
             
             <div class="section">
                 <h3>🖥️ System Information</h3>
                 <p><span class="label">Machine:</span> Wormhole N150</p>
-                <p><span class="label">Git Commit:</span> {git_info['commit']}</p>
-                <p><span class="label">Commit Time:</span> {git_info['time']}</p>
-                <p><span class="label">Commit Message:</span> {git_info['message']}</p>
+                <p><span class="label">Git Commit:</span> {safe_git_info['commit']}</p>
+                <p><span class="label">Commit Time:</span> {safe_git_info['time']}</p>
+                <p><span class="label">Commit Message:</span> {safe_git_info['message']}</p>
                 <p><span class="label">Queue Stats:</span></p>
                 <ul>
                     <li>Total Requests: {queue_stats['total_requests']}</li>
@@ -799,8 +822,8 @@ def submit_bug_report():
             
             <div class="section">
                 <h3>🔍 Browser Info</h3>
-                <p><span class="label">User Agent:</span> {request.headers.get('User-Agent', 'Unknown')}</p>
-                <p><span class="label">IP Address:</span> {request.remote_addr}</p>
+                <p><span class="label">User Agent:</span> {safe_user_agent}</p>
+                <p><span class="label">IP Address:</span> {safe_remote_addr}</p>
             </div>
         </body>
         </html>
@@ -812,7 +835,7 @@ def submit_bug_report():
         params = {
             "from": f"TTNN Bug Report <{CONTACT_EMAIL}>",
             "to": [BUG_REPORT_EMAIL],
-            "subject": f"🐛 Bug Report: {report_data.get('operation', 'Unknown Operation') if isinstance(report_data, dict) else 'Unknown Operation'}",
+            "subject": f"🐛 Bug Report: {str(report_data.get('operation', 'Unknown Operation')).replace(chr(10), ' ').replace(chr(13), ' ') if isinstance(report_data, dict) else 'Unknown Operation'}",
             "html": email_html
         }
         
@@ -851,4 +874,8 @@ if __name__ == '__main__':
     print("🚀 Starting TTNN Operation Calculator...")
     print("💡 Device opens on-demand per computation (efficient resource usage)")
     print("📍 Navigate to http://localhost:5000")
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    app.run(
+        debug=os.environ.get('FLASK_DEBUG', '').lower() == '1',
+        host=os.environ.get('FLASK_HOST', '127.0.0.1'),
+        port=int(os.environ.get('PORT', '5000')),
+    )

@@ -14,6 +14,9 @@ module.exports = {
       
       // Get from https://resend.com (starts with re_)
       RESEND_API_KEY: 'REPLACE_WITH_YOUR_RESEND_API_KEY',
+
+      // Generate with the command in SECURITY.md; do not commit the resulting value
+      PASSWORD_HASH: 'REPLACE_WITH_YOUR_PASSWORD_HASH',
       
       FLASK_ENV: 'production',
       PYTHONUNBUFFERED: '1'

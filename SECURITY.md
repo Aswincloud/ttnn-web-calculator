@@ -6,10 +6,10 @@ The TTNN Web Calculator is now protected with secure password authentication.
 
 ### Features
 
-1. **SHA-256 Password Hashing**
-   - Password is hashed using SHA-256 cryptographic algorithm
-   - Plain text password is NEVER stored in the code or database
-   - Only the hash is stored for comparison
+1. **Werkzeug Password Hashing**
+   - Passwords use Werkzeug's salted password hashing helpers
+   - Neither the password nor its hash is stored in the repository
+   - The hash is supplied through the `PASSWORD_HASH` environment variable
 
 2. **Session-Based Authentication**
    - Uses Flask's secure session management
@@ -31,33 +31,17 @@ The TTNN Web Calculator is now protected with secure password authentication.
    - Logout button in top-right corner
    - Clears session and redirects to login
 
-### Password
+### Configuring the Password
 
-**Current Password**: `mcw.pass`
-
-**Important**: The password is stored as a SHA-256 hash in the code:
-```
-fb4d52ec15fde028f3574bfb1a313020e1d5127851353194e84978f788ada6b3
-```
-
-### Changing the Password
-
-To change the password:
-
-1. Generate a new SHA-256 hash:
+Generate a password hash outside the repository:
 ```python
-import hashlib
-new_password = "your_new_password"
-password_hash = hashlib.sha256(new_password.encode()).hexdigest()
-print(password_hash)
+from getpass import getpass
+from werkzeug.security import generate_password_hash
+
+print(generate_password_hash(getpass()))
 ```
 
-2. Update the `PASSWORD_HASH` constant in `app.py`:
-```python
-PASSWORD_HASH = "your_new_hash_here"
-```
-
-3. Restart the Flask server
+Set the result as `PASSWORD_HASH` in the process environment and restart the Flask server.
 
 ### Security Best Practices
 
@@ -122,8 +106,8 @@ python test_auth.py
    - Secure (only sent over HTTPS when using Cloudflare)
    - Signed (cannot be forged)
 
-3. **Password hash** cannot be reversed:
-   - SHA-256 is a one-way cryptographic function
+3. **Password hash** is designed for password storage:
+   - Werkzeug uses a salted, deliberately slow password-hashing method
    - Even with the hash, the original password cannot be determined
    - Brute force attempts are computationally infeasible
 
@@ -138,6 +122,5 @@ Potential security improvements:
 - [ ] Add audit logging for access attempts
 - [ ] Add password complexity requirements
 - [ ] Add "remember me" functionality with secure tokens
-
 
 
