@@ -851,4 +851,7 @@ if __name__ == '__main__':
     print("🚀 Starting TTNN Operation Calculator...")
     print("💡 Device opens on-demand per computation (efficient resource usage)")
     print("📍 Navigate to http://localhost:5000")
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    # Debug stays off unless explicitly requested: Werkzeug's debugger allows code
+    # execution, and this server listens on all interfaces.
+    debug = os.environ.get('FLASK_DEBUG') == '1'
+    app.run(debug=debug, host='0.0.0.0', port=5000)
